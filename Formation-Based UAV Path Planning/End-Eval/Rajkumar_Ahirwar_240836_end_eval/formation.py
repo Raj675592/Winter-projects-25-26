@@ -1,138 +1,118 @@
 """
 formation.py
-Defines the 'R' letter formation using 10 UAVs.
+------------
+Defines the letter 'R' formation using 12 UAVs.
 
 How formation flying works
-──────────────────────────
-1. The centroid of all drones follows the planned trajectory.
-2. Each drone's world position = centroid_position + its fixed offset.
-3. Offsets are constant → shape is rigid throughout the flight.
-
-The 'R' skeleton is constructed from 10 key points that trace:
-  • A vertical stroke (5 drones)
-  • The upper closed bowl (3 drones + junction point)
-  • The diagonal descending leg (1 drone)
+--------------------------
+  1. The planner computes a single path for the formation centroid.
+  2. Each UAV's world position = centroid position + its fixed offset.
+  3. Offsets are constant throughout the flight  →  shape is preserved.
 """
 
-import os
 import numpy as np
-import matplotlib.pyplot as plt
 
-# ── Number of UAVs ─────────────────────────────────────────────────────────────
-N_DRONES = 10
-
-# ── Scale factor (units) ───────────────────────────────────────────────────────
-# Controls how large the 'R' appears in the simulation.
-_SCALE = 4.0
-
-# ── Raw skeleton points for letter 'R' (local coords, before centring) ────────
+# ── Raw letter-R shape (before centring) ─────────────────────────────────────
 #
-#   y↑
-#   4 ●───●           ← top of vertical + top of bowl
-#   3 |   ●           ← upper bowl right
-#   2 ●───●           ← mid junction + lower bowl right
-#   1 |   ●           ← lower leg (diagonal tip)
-#   0 ●               ← bottom of vertical
-#     0 1 2  x→
+#   Y-axis ↑
+#   4 ●──●──●
+#     |     |
+#   2 ●     ●
+#     |     |
+#   0 ●─────●          ← middle crossbar (spine ↔ bump base)
+#     |  ↗
+#  -2 ●
+#     |     ↘
+#  -4 ●        ●
+#      ↑              ↑
+#   x=-3            x=+2
 #
-_RAW = np.array([
-    [0.0, 0.0],   # 0  bottom of vertical stroke
-    [0.0, 1.0],   # 1  lower vertical
-    [0.0, 2.0],   # 2  mid vertical (where bowl closes & leg diverges)
-    [0.0, 3.0],   # 3  upper vertical
-    [0.0, 4.0],   # 4  top-left corner
-    [1.0, 4.0],   # 5  top-right of bowl
-    [2.0, 3.5],   # 6  upper-right bowl
-    [2.0, 2.5],   # 7  lower-right bowl
-    [1.0, 2.0],   # 8  bowl closes back to vertical
-    [2.0, 1.0],   # 9  diagonal leg tip (bottom-right)
+#   Drone indices:
+#    0: [-3,-4]   spine bottom
+#    1: [-3,-2]   spine lower
+#    2: [-3, 0]   spine middle
+#    3: [-3, 2]   spine upper
+#    4: [-3, 4]   spine top
+#    5: [-1, 4]   top-bar left
+#    6: [ 1, 4]   top-bar right
+#    7: [ 2, 3]   bump arc upper
+#    8: [ 2, 1]   bump arc lower
+#    9: [ 0, 0]   bump base / R junction
+#   10: [ 0,-2]   leg upper
+#   11: [ 2,-4]   leg lower tip
+
+_raw_offsets = np.array([
+    [-3, -4],   # 0  — spine bottom
+    [-3, -2],   # 1  — spine lower
+    [-3,  0],   # 2  — spine middle
+    [-3,  2],   # 3  — spine upper
+    [-3,  4],   # 4  — spine top
+    [-1,  4],   # 5  — top crossbar left
+    [ 1,  4],   # 6  — top crossbar right
+    [ 2,  3],   # 7  — right bump upper arc
+    [ 2,  1],   # 8  — right bump lower arc
+    [ 0,  0],   # 9  — bump base (R junction)
+    [ 0, -2],   # 10 — diagonal leg upper
+    [ 2, -4],   # 11 — diagonal leg tip
 ], dtype=float)
 
-# Centre & scale
-_centroid = _RAW.mean(axis=0)
-FORMATION_OFFSETS = (_RAW - _centroid) * _SCALE   # shape (N_DRONES, 2)
+# Centre so centroid lies at (0, 0)
+FORMATION_OFFSETS = _raw_offsets - _raw_offsets.mean(axis=0)
+
+N_UAVS = len(FORMATION_OFFSETS)   # 12
+
+# Edges used to draw the letter R in the animation
+FORMATION_EDGES = [
+    (0, 1), (1, 2), (2, 3), (3, 4),   # left vertical spine
+    (4, 5), (5, 6),                     # top horizontal crossbar
+    (6, 7), (7, 8), (8, 9),             # right bump arc
+    (2, 9),                             # middle horizontal bar (spine→bump)
+    (9, 10), (10, 11),                  # diagonal leg
+]
 
 
-# ── API ───────────────────────────────────────────────────────────────────────
-def get_offsets() -> np.ndarray:
-    """Return (N_DRONES × 2) array of (dx, dy) offsets from the centroid."""
-    return FORMATION_OFFSETS.copy()
+# ── Public API ────────────────────────────────────────────────────────────────
 
-
-def get_drone_positions(centroid_xy: np.ndarray) -> np.ndarray:
+def get_drone_positions(centroid_x: float, centroid_y: float,
+                         scale: float = 1.0) -> np.ndarray:
     """
-    Compute world positions for all drones given the centroid position.
+    World positions for all N_UAVS drones given the centroid location.
 
     Parameters
     ----------
-    centroid_xy : array-like, shape (2,) or (T, 2)
-        Centroid position(s).
+    centroid_x, centroid_y : centroid world coordinates
+    scale                  : stretch / shrink the formation (default 1.0)
 
     Returns
     -------
-    positions : np.ndarray
-        If centroid_xy is (2,)   → shape (N_DRONES, 2)
-        If centroid_xy is (T, 2) → shape (T, N_DRONES, 2)
+    positions : ndarray, shape (N_UAVS, 2)  — [x, y] per drone
     """
-    c = np.asarray(centroid_xy, dtype=float)
-    offsets = get_offsets()          # (N, 2)
-
-    if c.ndim == 1:
-        return c[np.newaxis, :] + offsets   # (N, 2)
-    else:
-        # c: (T, 2) → broadcast to (T, N, 2)
-        return c[:, np.newaxis, :] + offsets[np.newaxis, :, :]
+    offsets   = FORMATION_OFFSETS * scale
+    positions = offsets + np.array([centroid_x, centroid_y])
+    return positions
 
 
-# ── Visualisation helper ──────────────────────────────────────────────────────
-def plot_formation(ax=None, centroid=(0.0, 0.0), label_drones=True):
-    """Draw the formation at a given centroid position."""
-    if ax is None:
-        _, ax = plt.subplots(figsize=(5, 6))
+# ── Quick visualisation ───────────────────────────────────────────────────────
 
-    pos = get_drone_positions(np.array(centroid))   # (N, 2)
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
 
-    # Draw connecting lines (stroke order of the letter R)
-    edges = [
-        (0, 1), (1, 2), (2, 3), (3, 4),      # vertical stroke
-        (4, 5), (5, 6), (6, 7), (7, 8),      # bowl
-        (2, 8),                                # bowl closes
-        (8, 9),                                # diagonal leg
-    ]
-    for i, j in edges:
-        ax.plot([pos[i, 0], pos[j, 0]],
-                [pos[i, 1], pos[j, 1]],
-                "b-", linewidth=1.5, alpha=0.6)
+    scale = 3.0
+    pos   = get_drone_positions(0.0, 0.0, scale=scale)
 
-    # Draw drones
-    ax.scatter(pos[:, 0], pos[:, 1],
-               s=120, c="dodgerblue", zorder=5, edgecolors="k")
-
-    if label_drones:
-        for i, (x, y) in enumerate(pos):
-            ax.annotate(f"D{i}", (x, y),
-                        textcoords="offset points", xytext=(6, 4),
-                        fontsize=7, color="navy")
+    fig, ax = plt.subplots(figsize=(5, 8))
+    for i, j in FORMATION_EDGES:
+        ax.plot([pos[i, 0], pos[j, 0]], [pos[i, 1], pos[j, 1]],
+                "royalblue", lw=2, alpha=0.7)
+    ax.scatter(pos[:, 0], pos[:, 1], c="royalblue", s=140, zorder=5)
+    for k, (px, py) in enumerate(pos):
+        ax.annotate(str(k), (px, py), textcoords="offset points",
+                    xytext=(6, 5), fontsize=9, color="navy")
 
     ax.set_aspect("equal")
+    ax.set_title(f"Letter 'R' Formation — {N_UAVS} UAVs", fontsize=13)
+    ax.set_xlabel("X offset");  ax.set_ylabel("Y offset")
     ax.grid(True, alpha=0.3)
-    ax.set_title(f"Letter 'R' Formation  ({N_DRONES} UAVs)", fontsize=12, fontweight="bold")
-    ax.set_xlabel("X (units)")
-    ax.set_ylabel("Y (units)")
-    return ax
-
-
-# ── Standalone test ───────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    fig, ax = plt.subplots(figsize=(5, 7))
-    plot_formation(ax, centroid=(0.0, 0.0))
-
-    print("Formation offsets (dx, dy) for each drone:")
-    for i, (dx, dy) in enumerate(FORMATION_OFFSETS):
-        print(f"  Drone {i:2d}: ({dx:+.2f}, {dy:+.2f})")
-
-    out = os.path.join(os.path.dirname(__file__), "results", "formation_shape.png")
-    os.makedirs(os.path.dirname(out), exist_ok=True)
-    fig.savefig(out, dpi=150, bbox_inches="tight")
-    print(f"\nFormation shape saved → {out}")
+    plt.tight_layout()
     plt.show()
+    print(f"Formation offsets (centred):\n{FORMATION_OFFSETS}")
