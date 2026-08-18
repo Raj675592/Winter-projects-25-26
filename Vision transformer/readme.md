@@ -42,3 +42,6 @@ https://colab.research.google.com/drive/1F1c2U4Btn6HDeAJu1B91FAQP9vybdmqr#scroll
 ## Week 5
 **Resources**
 https://docs.google.com/document/d/1oecvyW6AnbbO0dczj0LR0iGmHgTIP8x21pj-0Vg_Luk/edit?tab=t.0#heading=h.gbepxdrux25z
+
+**Assignment 6**
+https://colab.research.google.com/drive/1PjeFxEQJg6JBqaxc55Gx-dNxoLVbpnUK?usp=sharing
