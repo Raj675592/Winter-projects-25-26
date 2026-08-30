@@ -36,16 +36,30 @@ _SCALE = 4.0
 #     0 1 2  x→
 #
 _RAW = np.array([
-    [0.0, 0.0],   # 0  bottom of vertical stroke
-    [0.0, 1.0],   # 1  lower vertical
-    [0.0, 2.0],   # 2  mid vertical (where bowl closes & leg diverges)
-    [0.0, 3.0],   # 3  upper vertical
-    [0.0, 4.0],   # 4  top-left corner
-    [1.0, 4.0],   # 5  top-right of bowl
-    [2.0, 3.5],   # 6  upper-right bowl
-    [2.0, 2.5],   # 7  lower-right bowl
-    [1.0, 2.0],   # 8  bowl closes back to vertical
-    [2.0, 1.0],   # 9  diagonal leg tip (bottom-right)
+    # Vertical Spine: (0,0) -> (0,4)
+    [0.00, 0.00],   # 0  bottom of vertical spine
+    [0.00, 1.00],   # 1  lower spine
+    [0.00, 2.00],   # 2  mid spine (junction point)
+    [0.00, 3.00],   # 3  upper spine
+    [0.00, 4.00],   # 4  top-left corner
+
+    # Smooth Upper Bowl: semi-elliptical curve back to (0,2)
+    [0.61, 3.92],   # 5
+    [1.13, 3.71],   # 6
+    [1.48, 3.38],   # 7
+    [1.60, 3.00],   # 8  bowl apex (rightmost extent)
+    [1.48, 2.62],   # 9
+    [1.13, 2.29],   # 10
+    [0.61, 2.08],   # 11
+    [0.00, 2.00],   # 12 bowl closes at mid-spine
+
+    # Smooth Diagonal Leg: extending downward to (1.8, 0)
+    [0.16, 1.78],   # 13 leg stroke begins
+    [0.46, 1.42],   # 14
+    [0.78, 1.07],   # 15
+    [1.11, 0.71],   # 16
+    [1.45, 0.36],   # 17
+    [1.80, 0.00],   # 18 diagonal leg tip
 ], dtype=float)
 
 # Centre & scale
